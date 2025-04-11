@@ -26,6 +26,19 @@ pub fn health_reporter() -> (HealthReporter, HealthServer<impl Health>) {
     (reporter, server)
 }
 
+/// Creates `HealthServer` linked to he proided `HealthServer`. Together,
+/// these types can be used to serve the gRPC Health Checking service.
+///
+/// A `HealthReporter` is used to update the state of gRPC services.
+///
+/// A `HealthServer` is a Tonic gRPC server for the `grpc.health.v1.Health`,
+/// which can be added to a Tonic runtime using `add_service` on the runtime
+/// builder.
+pub fn health_server(reporter: HealthReporter) -> HealthServer<impl Health> {
+    let service = HealthService::new(reporter.statuses.clone());
+    HealthServer::new(service)
+}
+
 type StatusPair = (watch::Sender<ServingStatus>, watch::Receiver<ServingStatus>);
 
 /// A handle providing methods to update the health status of gRPC services. A
@@ -37,7 +50,7 @@ pub struct HealthReporter {
 }
 
 impl HealthReporter {
-    fn new() -> Self {
+    pub fn new() -> Self {
         // According to the gRPC Health Check specification, the empty service "" corresponds to the overall server health
         let server_status = ("".to_string(), watch::channel(ServingStatus::Serving));
 
