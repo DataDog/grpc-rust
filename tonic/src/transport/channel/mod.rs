@@ -28,6 +28,7 @@ use std::{
 use tokio::sync::mpsc::{Sender, channel};
 
 use hyper::rt;
+use hyper_util::client::legacy::connect::Connection as HyperConnection;
 use tower::balance::p2c::Balance;
 use tower::{
     Service,
@@ -131,6 +132,31 @@ impl Channel {
     ///
     /// This creates a [`Channel`] that will listen to a stream of change events and will add or remove provided endpoints.
     ///
+    /// The [`Channel`] will use the given connector builder to create a new connector for each endpoint.
+    pub fn balance_channel_with_connector<K, B, C>(
+        capacity: usize,
+        connector_builder: B,
+    ) -> (Self, Sender<Change<K, Endpoint>>)
+    where
+        K: Hash + Eq + Send + Clone + 'static,
+        B: Fn(&Endpoint) -> C + Send + 'static,
+        C: Service<Uri> + Clone + Send + 'static,
+        C::Error: Into<crate::BoxError> + Send,
+        C::Future: Send,
+        C::Response: rt::Read + rt::Write + HyperConnection + Unpin + Send + 'static,
+        crate::BoxError: From<C::Error> + Send,
+    {
+        Self::balance_channel_with_connector_and_executor(
+            capacity,
+            connector_builder,
+            SharedExec::tokio(),
+        )
+    }
+
+    /// Balance a list of [`Endpoint`]'s.
+    ///
+    /// This creates a [`Channel`] that will listen to a stream of change events and will add or remove provided endpoints.
+    ///
     /// The [`Channel`] will use the given executor to spawn async tasks.
     pub fn balance_channel_with_executor<K, E>(
         capacity: usize,
@@ -140,8 +166,27 @@ impl Channel {
         K: Hash + Eq + Send + Clone + 'static,
         E: Executor<Pin<Box<dyn Future<Output = ()> + Send>>> + Send + Sync + 'static,
     {
+        let connector = |endpoint: &Endpoint| endpoint.http_connector();
+        Self::balance_channel_with_connector_and_executor(capacity, connector, executor)
+    }
+
+    pub(crate) fn balance_channel_with_connector_and_executor<K, B, C, E>(
+        capacity: usize,
+        connector_builder: B,
+        executor: E,
+    ) -> (Self, Sender<Change<K, Endpoint>>)
+    where
+        K: Hash + Eq + Send + Clone + 'static,
+        B: Fn(&Endpoint) -> C + Send + 'static,
+        C: Service<Uri> + Send + 'static,
+        C::Error: Into<crate::BoxError> + Send,
+        C::Future: Send,
+        C::Response: rt::Read + rt::Write + HyperConnection + Unpin + Send + 'static,
+        E: Executor<Pin<Box<dyn Future<Output = ()> + Send>>> + Send + Sync + 'static,
+        crate::BoxError: From<C::Error> + Send,
+    {
         let (tx, rx) = channel(capacity);
-        let list = DynamicServiceStream::new(rx);
+        let list = DynamicServiceStream::new(rx, connector_builder);
         (Self::balance(list, DEFAULT_BUFFER_SIZE, executor), tx)
     }
 
