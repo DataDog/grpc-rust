@@ -1,6 +1,7 @@
 use super::super::{Connection, Endpoint};
 
-use hyper_util::client::legacy::connect::HttpConnector;
+use http::Uri;
+use hyper::rt;
 use std::{
     hash::Hash,
     pin::Pin,
@@ -10,20 +11,33 @@ use tokio::sync::mpsc::Receiver;
 
 use tokio_stream::Stream;
 use tower::discover::Change;
+use tower_service::Service;
 
 type DiscoverResult<K, S, E> = Result<Change<K, S>, E>;
 
-pub(crate) struct DynamicServiceStream<K: Hash + Eq + Clone> {
+pub(crate) struct DynamicServiceStream<K: Hash + Eq + Clone, B> {
     changes: Receiver<Change<K, Endpoint>>,
+    connector_builder: B,
 }
 
-impl<K: Hash + Eq + Clone> DynamicServiceStream<K> {
-    pub(crate) fn new(changes: Receiver<Change<K, Endpoint>>) -> Self {
-        Self { changes }
+impl<K: Hash + Eq + Clone, B> DynamicServiceStream<K, B> {
+    pub(crate) fn new(changes: Receiver<Change<K, Endpoint>>, connector_builder: B) -> Self {
+        Self {
+            changes,
+            connector_builder,
+        }
     }
 }
 
-impl<K: Hash + Eq + Clone> Stream for DynamicServiceStream<K> {
+impl<K, B, C> Stream for DynamicServiceStream<K, B>
+where
+    K: Hash + Eq + Clone,
+    B: Fn(&Endpoint) -> C,
+    C: Service<Uri> + Clone + Send + 'static,
+    C::Future: Send,
+    C::Response: rt::Read + rt::Write + Unpin + Send + 'static,
+    crate::Error: From<C::Error> + Send,
+{
     type Item = DiscoverResult<K, Connection, crate::Error>;
 
     fn poll_next(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
@@ -32,13 +46,10 @@ impl<K: Hash + Eq + Clone> Stream for DynamicServiceStream<K> {
             Poll::Pending | Poll::Ready(None) => Poll::Pending,
             Poll::Ready(Some(change)) => match change {
                 Change::Insert(k, endpoint) => {
-                    let mut http = HttpConnector::new();
-                    http.set_nodelay(endpoint.tcp_nodelay);
-                    http.set_keepalive(endpoint.tcp_keepalive);
-                    http.set_connect_timeout(endpoint.connect_timeout);
-                    http.enforce_http(false);
-
-                    let connection = Connection::lazy(endpoint.connector(http), endpoint);
+                    let connection = Connection::lazy(
+                        endpoint.connector((self.connector_builder)(&endpoint)),
+                        endpoint,
+                    );
                     let change = Ok(Change::Insert(k, connection));
                     Poll::Ready(Some(change))
                 }
@@ -48,4 +59,4 @@ impl<K: Hash + Eq + Clone> Stream for DynamicServiceStream<K> {
     }
 }
 
-impl<K: Hash + Eq + Clone> Unpin for DynamicServiceStream<K> {}
+impl<K: Hash + Eq + Clone, C> Unpin for DynamicServiceStream<K, C> {}
