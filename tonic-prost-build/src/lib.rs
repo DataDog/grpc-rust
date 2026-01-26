@@ -192,68 +192,14 @@ impl tonic_build::Method for TonicBuildMethod {
         proto_path: &str,
         compile_well_known_types: bool,
     ) -> (TokenStream, TokenStream) {
-        let request = if is_google_type(&self.prost_method.input_type) && !compile_well_known_types
-        {
-            // For well-known types, map to absolute paths that will work with super::
-            //
-            // NOTE: This fix was taken from https://github.com/hyperium/tonic/pull/2471 and
-            // should be reverted once there is a merged solution for
-            // https://github.com/hyperium/tonic/issues/2388
-            match self.prost_method.input_type.as_str() {
-                ".google.protobuf.Any" => quote!(::prost_types::Any),
-                ".google.protobuf.BoolValue" => quote!(bool),
-                ".google.protobuf.BytesValue" => quote!(::prost::bytes::Bytes),
-                ".google.protobuf.DoubleValue" => quote!(f64),
-                ".google.protobuf.Empty" => quote!(()),
-                ".google.protobuf.FloatValue" => quote!(f32),
-                ".google.protobuf.Int32Value" => quote!(i32),
-                ".google.protobuf.Int64Value" => quote!(i64),
-                ".google.protobuf.StringValue" => quote!(::prost::alloc::string::String),
-                ".google.protobuf.UInt32Value" => quote!(u32),
-                ".google.protobuf.UInt64Value" => quote!(u64),
-                _ => {
-                    // For other google types, assume they're in prost_types
-                    let type_name = self
-                        .prost_method
-                        .input_type
-                        .trim_start_matches(".google.protobuf.")
-                        .to_string();
-                    syn::parse_str::<syn::Path>(&format!("::prost_types::{type_name}"))
-                        .unwrap()
-                        .to_token_stream()
-                }
-            }
-        } else if NON_PATH_TYPE_ALLOWLIST
-            .iter()
-            .any(|ty| self.prost_method.input_type.ends_with(ty))
-        {
-            self.prost_method.input_type.parse::<TokenStream>().unwrap()
-        } else {
-            // Check if this is an extern type that starts with :: or crate::
-            if self.prost_method.input_type.starts_with("::")
-                || self.prost_method.input_type.starts_with("crate::")
-            {
-                // This is an extern type, use it directly
-                self.prost_method.input_type.parse::<TokenStream>().unwrap()
-            } else {
-                // Replace dots with double colons for the type name
-                let rust_type = self.prost_method.input_type.replace('.', "::");
-                // Remove leading :: if present
-                let rust_type = rust_type.trim_start_matches("::");
-                syn::parse_str::<syn::Path>(&format!("{proto_path}::{rust_type}"))
-                    .unwrap()
-                    .to_token_stream()
-            }
-        };
-
-        let response =
-            if is_google_type(&self.prost_method.output_type) && !compile_well_known_types {
+        let request =
+            if is_google_type(&self.prost_method.input_proto_type) && !compile_well_known_types {
                 // For well-known types, map to absolute paths that will work with super::
                 //
-                // NOTE: This fix was taken from https://github.com/hyperium/tonic/pull/2471 and
+                // NOTE: This fix was inspired in https://github.com/hyperium/tonic/pull/2471 and
                 // should be reverted once there is a merged solution for
                 // https://github.com/hyperium/tonic/issues/2388
-                match self.prost_method.output_type.as_str() {
+                match self.prost_method.input_proto_type.as_str() {
                     ".google.protobuf.Any" => quote!(::prost_types::Any),
                     ".google.protobuf.BoolValue" => quote!(bool),
                     ".google.protobuf.BytesValue" => quote!(::prost::bytes::Bytes),
@@ -269,7 +215,61 @@ impl tonic_build::Method for TonicBuildMethod {
                         // For other google types, assume they're in prost_types
                         let type_name = self
                             .prost_method
-                            .output_type
+                            .input_proto_type
+                            .trim_start_matches(".google.protobuf.")
+                            .to_string();
+                        syn::parse_str::<syn::Path>(&format!("::prost_types::{type_name}"))
+                            .unwrap()
+                            .to_token_stream()
+                    }
+                }
+            } else if NON_PATH_TYPE_ALLOWLIST
+                .iter()
+                .any(|ty| self.prost_method.input_type.ends_with(ty))
+            {
+                self.prost_method.input_type.parse::<TokenStream>().unwrap()
+            } else {
+                // Check if this is an extern type that starts with :: or crate::
+                if self.prost_method.input_type.starts_with("::")
+                    || self.prost_method.input_type.starts_with("crate::")
+                {
+                    // This is an extern type, use it directly
+                    self.prost_method.input_type.parse::<TokenStream>().unwrap()
+                } else {
+                    // Replace dots with double colons for the type name
+                    let rust_type = self.prost_method.input_type.replace('.', "::");
+                    // Remove leading :: if present
+                    let rust_type = rust_type.trim_start_matches("::");
+                    syn::parse_str::<syn::Path>(&format!("{proto_path}::{rust_type}"))
+                        .unwrap()
+                        .to_token_stream()
+                }
+            };
+
+        let response =
+            if is_google_type(&self.prost_method.output_proto_type) && !compile_well_known_types {
+                // For well-known types, map to absolute paths that will work with super::
+                //
+                // NOTE: This fix was inspired in https://github.com/hyperium/tonic/pull/2471 and
+                // should be reverted once there is a merged solution for
+                // https://github.com/hyperium/tonic/issues/2388
+                match self.prost_method.output_proto_type.as_str() {
+                    ".google.protobuf.Any" => quote!(::prost_types::Any),
+                    ".google.protobuf.BoolValue" => quote!(bool),
+                    ".google.protobuf.BytesValue" => quote!(::prost::bytes::Bytes),
+                    ".google.protobuf.DoubleValue" => quote!(f64),
+                    ".google.protobuf.Empty" => quote!(()),
+                    ".google.protobuf.FloatValue" => quote!(f32),
+                    ".google.protobuf.Int32Value" => quote!(i32),
+                    ".google.protobuf.Int64Value" => quote!(i64),
+                    ".google.protobuf.StringValue" => quote!(::prost::alloc::string::String),
+                    ".google.protobuf.UInt32Value" => quote!(u32),
+                    ".google.protobuf.UInt64Value" => quote!(u64),
+                    _ => {
+                        // For other google types, assume they're in prost_types
+                        let type_name = self
+                            .prost_method
+                            .output_proto_type
                             .trim_start_matches(".google.protobuf.")
                             .to_string();
                         syn::parse_str::<syn::Path>(&format!("::prost_types::{type_name}"))
