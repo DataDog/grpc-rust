@@ -25,6 +25,28 @@ fn create_test_method(input_type: String, output_type: String) -> TonicBuildMeth
 }
 
 #[test]
+fn bugs_bunny() {
+    // Test Google well-known types when compile_well_known_types is false
+    let test_cases = vec![(".google.protobuf.UInt32Value", quote!(u32))];
+
+    for (type_name, expected) in test_cases {
+        let method = create_test_method(type_name.to_string(), type_name.to_string());
+        let (request, response) = method.request_response_name("super", false);
+
+        assert_eq!(
+            request.to_string(),
+            expected.to_string(),
+            "Failed for input type: {type_name}"
+        );
+        assert_eq!(
+            response.to_string(),
+            expected.to_string(),
+            "Failed for output type: {type_name}"
+        );
+    }
+}
+
+#[test]
 fn test_request_response_name_google_types_not_compiled() {
     // Test Google well-known types when compile_well_known_types is false
     let test_cases = vec![
