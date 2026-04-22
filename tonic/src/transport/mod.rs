@@ -102,6 +102,8 @@ mod tls;
 #[cfg(feature = "channel")]
 pub use self::channel::{Channel, Endpoint};
 pub use self::error::Error;
+#[cfg(feature = "channel")]
+pub use self::service::managed_retry::{ManagedRetryLayer, ManagedRetryService};
 #[doc(inline)]
 #[cfg(feature = "server")]
 pub use self::server::Server;
