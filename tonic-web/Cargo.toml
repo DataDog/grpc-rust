@@ -29,4 +29,4 @@ tower-http = { version = "0.4", features = ["cors"] }
 tracing = "0.1"
 
 [dev-dependencies]
-tokio = {version = "1", features = ["macros", "rt"]}
+tokio = {version = "1.38.2", features = ["macros", "rt"]}
